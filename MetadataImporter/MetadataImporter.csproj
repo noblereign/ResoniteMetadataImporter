@@ -5,6 +5,7 @@
 		<LangVersion>14.0</LangVersion>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<!-- Change CopyToMods to true if you'd like builds to be moved into the Mods folder automatically-->
 		<CopyToMods Condition="'$(CopyToMods)'==''">true</CopyToMods>
 	</PropertyGroup>
@@ -14,7 +15,8 @@
 		<ResonitePath>$(MSBuildThisFileDirectory)Resonite/</ResonitePath>
 		<ResonitePath Condition="Exists('C:\Program Files (x86)\Steam\steamapps\common\Resonite\')">C:\Program Files (x86)\Steam\steamapps\common\Resonite\</ResonitePath>
 		<ResonitePath Condition="Exists('$(HOME)/.steam/steam/steamapps/common/Resonite/')">$(HOME)/.steam/steam/steamapps/common/Resonite/</ResonitePath>
-	</PropertyGroup>
+    <ResonitePath Condition="Exists('P:\SteamLibrary\steamapps\common\Resonite\')">P:\SteamLibrary\steamapps\common\Resonite\</ResonitePath>
+  </PropertyGroup>
 
 	<ItemGroup>
 		<Reference Include="ResoniteModLoader">
@@ -25,7 +27,15 @@
 			<HintPath>$(ResonitePath)rml_libs\0Harmony.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
-		<Reference Include="FrooxEngine">
+    <Reference Include="Elements.Core">
+      <HintPath>$(ResonitePath)Elements.Core.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Elements.Assets">
+      <HintPath>$(ResonitePath)Elements.Assets.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+		<Reference Include="FrooxEngine" Publicize="true">
 			<HintPath>$(ResonitePath)FrooxEngine.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
@@ -35,8 +45,22 @@
 		<EmbeddedResource Include="Locale\*.json" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.3">
+	    <PrivateAssets>all</PrivateAssets>
+	    <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+	  </PackageReference>
+	  <PackageReference Include="TagLibSharp" Version="2.3.0" />
+	</ItemGroup>
+
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(CopyToMods)'=='true'">
 		<Message Text="Attempting to copy $(TargetFileName) to $(ResonitePath)rml_mods" Importance="high" />
 		<Copy SourceFiles="$(TargetDir)$(TargetFileName)" DestinationFolder="$(ResonitePath)rml_mods" ContinueOnError="true" />
 	</Target>
+
+  <Target Name="CopyTagLibSharp" AfterTargets="PostBuildEvent" Condition="'$(CopyToMods)'=='true'">
+    <Message Text="Attempting to copy TagLibSharp to $(ResonitePath)rml_libs" Importance="high" />
+    <Copy SourceFiles="$(TargetDir)TagLibSharp.dll" DestinationFolder="$(ResonitePath)rml_libs" ContinueOnError="true" />
+  </Target>
+  
 </Project>
