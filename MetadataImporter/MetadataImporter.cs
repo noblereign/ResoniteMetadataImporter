@@ -1,20 +1,16 @@
 ﻿using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
-using System.Security.Principal;
 using System.Text.RegularExpressions;
-using System.Xml.Linq;
-
 using Elements.Core;
-
 using FrooxEngine;
-using FrooxEngine.Undo;
-
 using HarmonyLib;
-
 using ResoniteModLoader;
-
 using File = TagLib.File;
+
+#if DEBUG
+using ResoniteHotReloadLib;
+#endif
 
 namespace MetadataImporter;
 public class MetadataImporter : ResoniteMod {
@@ -23,6 +19,14 @@ public class MetadataImporter : ResoniteMod {
 	public override string Author => "Noble";
 	public override string Version => VERSION_CONSTANT;
 	public override string Link => "https://github.com/noblereign/ResoniteMetadataImporter/";
+
+	const string harmonyId = "dog.glacier.MetadataImporter";
+
+	[AutoRegisterConfigKey]
+	public static readonly ModConfigurationKey<bool> Enabled = new("Enabled", "Enables the mod, pretty self explanatory!", () => true);
+
+	[AutoRegisterConfigKey]
+	public static readonly ModConfigurationKey<bool> UseFilenameAsTrackName = new("Fallback to File Name", "Should the file name be used as a fallback when the track name is missing?", () => true);
 
 	private static Dictionary<string, string[]> TagSynonyms = new Dictionary<string, string[]> {
 		["Performers"] = ["Artist", "Artists", "JoinedPerformers"],
@@ -77,10 +81,48 @@ public class MetadataImporter : ResoniteMod {
 		"JoinedPerformersSort",
 	};
 
+	public static ModConfiguration? Config;
 	public override void OnEngineInit() {
-		Harmony harmony = new("dog.glacier.MetadataImporter");
+		#if DEBUG
+		HotReloader.RegisterForHotReload(this);
+		#endif
+
+		Config = GetConfiguration()!;
+		Config!.Save(true);
+
+		// Call setup method
+		Setup();
+	}
+
+	static void Setup() {
+		// Patch Harmony
+		Harmony harmony = new Harmony(harmonyId);
 		harmony.PatchAll();
 	}
+
+	#if DEBUG
+	// This is the method that should be used to unload your mod
+	// This means removing patches, clearing memory that may be in use etc.
+	static void BeforeHotReload() {
+		// Unpatch Harmony
+		Harmony harmony = new Harmony(harmonyId);
+		harmony.UnpatchAll(harmonyId);
+	}
+
+	// This is called in the newly loaded assembly
+	// Load your mod here like you normally would in OnEngineInit
+
+	static void OnHotReload(ResoniteMod modInstance) {
+		// Get the config if needed
+		Config = modInstance.GetConfiguration()!;
+		Config!.Save(true);
+
+		// Call setup method
+		Setup();
+	}
+	#endif
+
+
 
 	[HarmonyPatch]
 	public static class AudioImporterPatch {
@@ -190,6 +232,8 @@ public class MetadataImporter : ResoniteMod {
 		}
 
 		public static void ApplyMetadata(string file, AudioPlayerInterface audioPlayer) {
+			if (!(Config != null ? Config.GetValue(Enabled)! : false)) return;
+
 			if (audioPlayer == null) { Warn("No AudioPlayerInterface was passed. Ending early."); return; }
 			if (file == null) { Warn("File was null, ending early."); return; }
 			Debug($"Discovering audio player slot");
@@ -227,8 +271,6 @@ public class MetadataImporter : ResoniteMod {
 
 				List<string> writtenDynVars = new List<string>();
 
-
-
 				Debug($"Seperator: [{useSeparator}]");
 				Debug($"Cast to strings: [{castToStrings}]");
 
@@ -259,7 +301,15 @@ public class MetadataImporter : ResoniteMod {
 
 						var value = prop.GetValue(FileTags);
 
-						if (value == null) continue;
+						if (value == null) {
+							if (prop.Name == "Title" && (Config != null ? Config.GetValue(UseFilenameAsTrackName)! : true)) {
+								Msg("No track title metadata found, falling back to file name.");
+								value = Path.GetFileName(file);
+							} else {
+								continue;
+							}
+						}
+						
 						if (value is TagLib.IPicture[] photos) {
 							//TODO: Maybe import album art?
 							//Not really a priority for me right now, but it could be cool...

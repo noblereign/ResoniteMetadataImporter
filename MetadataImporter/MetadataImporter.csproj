@@ -23,6 +23,9 @@
 			<HintPath>$(ResonitePath)Libraries\ResoniteModLoader.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
+    <Reference Include="ResoniteHotReloadLib">
+      <HintPath>$(ResonitePath)rml_libs\ResoniteHotReloadLib.dll</HintPath>
+    </Reference>
 		<Reference Include="HarmonyLib">
 			<HintPath>$(ResonitePath)rml_libs\0Harmony.dll</HintPath>
 			<Private>False</Private>
@@ -52,6 +55,10 @@
 	  </PackageReference>
 	  <PackageReference Include="TagLibSharp" Version="2.3.0" />
 	</ItemGroup>
+
+  <PropertyGroup>
+    <PostBuildEvent Condition="Exists('P:\SteamLibrary\steamapps\common\Resonite\rml_mods\HotReloadMods\')">copy /Y "$(TargetDir)$(AssemblyName).dll" "P:\SteamLibrary\steamapps\common\Resonite\rml_mods\HotReloadMods\$(AssemblyName).dll</PostBuildEvent>
+  </PropertyGroup>
 
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(CopyToMods)'=='true'">
 		<Message Text="Attempting to copy $(TargetFileName) to $(ResonitePath)rml_mods" Importance="high" />
