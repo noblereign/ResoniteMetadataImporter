@@ -245,11 +245,22 @@ public class MetadataImporter : ResoniteMod {
 						if (stringUse.Trim().Length <= 0) continue;
 					}
 
+					if (useValue is Enum enumValue) {
+						useValue = enumValue.ToString(); // dear GOD convert it to a string, evil things happen if you don't 😭
+					}
+
 					if (useValue is int intValue) {
 						if (intValue <= 0) continue; // i think this should be okay?
 					}
 					if (useValue is string && int.TryParse((string)useValue, out int intValueBackup)) {
 						if (intValueBackup <= 0) continue;
+					}
+
+					if (useValue is uint uintValue) {
+						if (uintValue <= 0) continue;
+					}
+					if (useValue is string && uint.TryParse((string)useValue, out uint uintValueBackup)) {
+						if (uintValueBackup <= 0) continue;
 					}
 
 					if (value is float floatValue) {
