@@ -1,28 +1,55 @@
-﻿using System;
-using System.Reflection;
+﻿using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
-
-using Elements.Assets;
+using System.Text.RegularExpressions;
 using Elements.Core;
-
 using FrooxEngine;
-
 using HarmonyLib;
-
 using ResoniteModLoader;
-
-using TagLib;
-
 using File = TagLib.File;
 
 namespace MetadataImporter;
 public class MetadataImporter : ResoniteMod {
-	internal const string VERSION_CONSTANT = "1.0.0"; //Changing the version here updates it in all locations needed
+	internal const string VERSION_CONSTANT = "1.0.0";
 	public override string Name => "MetadataImporter";
 	public override string Author => "Noble";
 	public override string Version => VERSION_CONSTANT;
 	public override string Link => "https://github.com/noblereign/ResoniteMetadataImporter/";
+
+	private static Dictionary<string, string[]> TagSynonyms = new Dictionary<string, string[]> {
+		["Performers"] = ["Artist", "Artists", "JoinedPerformers"],
+		["PerformersSort"] = ["ArtistSort", "ArtistsSort", "JoinedPerformersSort", "SortPerformers", "SortArtist", "SortArtists", "SortJoinedPerformers"],
+		["Composers"] = ["Composer", "JoinedComposers"],
+		["ComposersSort"] = ["ComposerSort", "JoinedComposersSort", "SortComposer", "SortComposers", "SortJoinedComposers"],
+		["AlbumArtists"] = ["AlbumArtist", "JoinedAlbumArtists"],
+		["AlbumArtistsSort"] = ["AlbumArtistSort", "JoinedAlbumArtistsSort", "SortAlbumArtists", "SortAlbumArtist", "SortJoinedAlbumArtists"],
+		["Genres"] = ["Genre", "JoinedGenres"],
+		["BeatsPerMinute"] = ["BPM"],
+		["Description"] = ["Desc"],
+		["Subtitle"] = ["Tagline", "ShortDescription", "ShortDesc"],
+		["TitleSort"] = ["SortTitle"],
+		["ReplayGainAlbumGain"] = ["AlbumGain"],
+		["ReplayGainAlbumPeak"] = ["AlbumPeak"],
+		["ReplayGainTrackGain"] = ["TrackGain"],
+		["ReplayGainTrackPeak"] = ["TrackPeak"],
+		["MusicIpId"] = ["IPID"],
+		["MusicBrainzArtistId"] = ["ArtistId", "MBID.Artist"],
+		["MusicBrainzDiscId"] = ["DiscId", "MBID.Disc"],
+		["MusicBrainzReleaseId"] = ["ReleaseId", "MBID.Release"],
+		["MusicBrainzTrackId"] = ["TrackId", "RecordingId", "MusicBrainzRecordingId", "MBID.Track", "MBID.Recording"],
+		["MusicBrainzReleaseArtistId"] = ["ReleaseArtistId", "MBID.ReleaseArtist"],
+		["MusicBrainzReleaseGroupId"] = ["ReleaseGroupId", "MBID.ReleaseGroup"],
+		["MusicBrainzReleaseType"] = ["ReleaseType", "MB.ReleaseType"],
+	};
+
+	private static string[] IgnoreTags = new string[] { // ignoring these as we generate them on our own.
+		"JoinedPerformers",
+		"JoinedAlbumArtists",
+		"JoinedArtists",
+		"JoinedComposers",
+		"JoinedGenres",
+		"JoinedPerformersSort",
+	};
 
 	public override void OnEngineInit() {
 		Harmony harmony = new("dog.glacier.MetadataImporter");
@@ -32,9 +59,9 @@ public class MetadataImporter : ResoniteMod {
 	[HarmonyPatch]
 	public static class AudioImporterPatch {
 		private static MethodBase GetMoveNext(MethodInfo method) {
-			if (method == null) return null;
+			if (method == null) return null!;
 			var attr = method.GetCustomAttribute<AsyncStateMachineAttribute>();
-			if (attr == null) return null;
+			if (attr == null) return null!;
 			return AccessTools.Method(attr.StateMachineType, "MoveNext");
 		}
 
@@ -44,7 +71,8 @@ public class MetadataImporter : ResoniteMod {
 			var vanillaTarget = GetMoveNext(vanillaMethod);
 			if (vanillaTarget != null) yield return vanillaTarget;
 
-			// CommunityBugFixCollection (didn't realize they use a prefix for this 😭)
+			// CommunityBugFixCollection (didn't realize they
+			// use a prefix for this 😭)
 			var modType = AccessTools.TypeByName("CommunityBugFixCollection.ImportMultipleAudioFiles");
 			if (modType != null) {
 				Msg("[AudioImporterPatch] Found CommunityBugFixCollection! Attempting to patch its ImportAudioAsync...");
@@ -136,66 +164,100 @@ public class MetadataImporter : ResoniteMod {
 		}
 
 		public static void ApplyMetadata(string file, AudioPlayerInterface audioPlayer) {
-			if (audioPlayer == null) { return; }
+			if (audioPlayer == null) { Warn("No AudioPlayerInterface was passed. Ending early."); return; }
+			if (file == null) { Warn("File was null, ending early."); return; }
+			Debug($"Discovering audio player slot");
 			Slot interfaceSlot = audioPlayer.Slot;
+			Debug($"Discovering metadata slot");
 			Slot metadataSlot = interfaceSlot.FindChildOrAdd("Metadata", true);
 
-			Msg($"Getting the metadata for {file ?? "(NULL?!)"}...");
+			//TODO: Inject dynvars if the slot didn't exist.
+			Debug($"Discovering dynamic variable space");
+			DynamicVariableSpace mainSpace = interfaceSlot.FindSpace(null!); // if there's nothing it'll probably just be the World one
 
-			using (File TaggedFile = TagLib.File.Create(@file)) {
-				Tag FileTags = TaggedFile.Tag;
+			Debug($"Discovering settings...");
 
-				// Standard stuff that most music will probably have
-				string artist = FileTags.JoinedPerformers;
-				string title = FileTags.Title;
-				string publisher = FileTags.Publisher;
-				string album = FileTags.Album;
-				string albumArtist = FileTags.JoinedAlbumArtists;
-				uint year = FileTags.Year;
-				string genres = FileTags.JoinedGenres;
-				uint trackNumber = FileTags.Track;
-				uint trackCount = FileTags.TrackCount;
-				
-				// Stuff that isn't as likely but still could appear
-				uint bpm = FileTags.BeatsPerMinute;
-				string lyrics = FileTags.Lyrics;
-				string description = FileTags.Description;
-				string copyright = FileTags.Copyright;
-				string subtitle = FileTags.Subtitle;
-				string remixedBy = FileTags.RemixedBy;
-				string titleSort = FileTags.TitleSort;
+			interfaceSlot.RunInUpdates(3, () => {
+				mainSpace.TryReadValue<string>("MetadataImporter.Separator", out string? result);
+				string useSeparator = result ?? ", ";
+				Debug($"Seperator: [{useSeparator}]");
 
-				// ReplayGain
-				double rg_AlbumGain = FileTags.ReplayGainAlbumGain;
-				double rg_AlbumPeak = FileTags.ReplayGainAlbumPeak;
-				double rg_TrackGain = FileTags.ReplayGainTrackGain;
-				double rg_TrackPeak = FileTags.ReplayGainTrackPeak;
+				Debug($"Getting the metadata for {file}...");
 
-				// I feel like it's incredibly unlikely to have these, but sure, expose it anyway
-				uint discNumber = FileTags.Disc;
-				uint discCount = FileTags.DiscCount;
-				string isrc = FileTags.ISRC;
-				string ipid = FileTags.MusicIpId;
+				using (File TaggedFile = TagLib.File.Create(@file)) {
+					TagLib.Tag FileTags = TaggedFile.Tag;
 
-				// MusicBrainz specific things
-				string mb_ArtistId = FileTags.MusicBrainzArtistId;
-				string mb_DiscId = FileTags.MusicBrainzDiscId;
-				string mb_ReleaseId = FileTags.MusicBrainzReleaseId;
-				string mb_TrackId = FileTags.MusicBrainzTrackId;
-				string mb_ReleaseArtistId = FileTags.MusicBrainzReleaseArtistId;
-				string mb_ReleaseGroupId = FileTags.MusicBrainzReleaseGroupId;
-				string mb_ReleaseType = FileTags.MusicBrainzReleaseType;
+					PropertyInfo[] properties = typeof(TagLib.Tag).GetProperties();
+
+					foreach (var prop in properties) {
+
+						if (IgnoreTags.Contains(prop.Name)) continue;
+
+						List<string> propertyNames = [prop.Name];
+
+						if (TagSynonyms.ContainsKey(prop.Name)) {
+							propertyNames.AddRange(TagSynonyms[prop.Name]);
+						}
+
+						foreach (string name in propertyNames.ToList()) { // allow matching to spaced names, e.g. "Beats Per Minute" instead of "BeatsPerMinute"
+							string spacedName = Regex.Replace(name, @"((?<=\p{Ll})\p{Lu})|((?!\A)\p{Lu}(?>\p{Ll}))", " $0");
+							if (spacedName != name) {
+								propertyNames.Add(spacedName);
+							}
+						}
 
 
-				TimeSpan duration = TaggedFile.Properties.Duration;
-				Msg($"Artists: {artist}");
-				Msg($"Title: {title}");
-				Msg($"Publisher: {publisher}");
-				Msg($"Album: {album}");
-				Msg($"Album Artists: {albumArtist}");
-				Msg($"Year: {year}");
-				Msg($"Genres: {genres}");
-			}
+						var value = prop.GetValue(FileTags);
+
+						if (value == null) continue;
+
+						string? joinedValue = null;
+
+						if (value is string[] stringedValue) {
+							Debug($"(Joining {prop.Name}...)");
+							joinedValue = string.Join(useSeparator, stringedValue);
+
+							if (useSeparator != ", ") {
+								// we want to be doubly sure that the correct separator is being used
+								// for some reason a lot of stuff doesn't *actually* give a proper 'array' of artists, instead its just comma seperated in the metadata
+								// so let's process them to turn it into a array and then back again
+
+								List<string> dividedText = joinedValue
+									.Split(',')
+									.Select(s => s.Trim())
+									.Where(s => !string.IsNullOrEmpty(s)) // Optional: removes empty strings
+									.ToList();
+
+								joinedValue = string.Join(useSeparator, dividedText);
+							}
+
+						}
+
+						var useValue = joinedValue ?? value;
+
+						Debug($"Scanning for field {prop.Name} using synonyms: {String.Join(",", propertyNames)}");
+
+						foreach (string name in propertyNames) {
+							bool wasWritten = false;
+							foreach (var identity in mainSpace._dynamicValues.Keys) {
+								if (identity.name.Equals(name, StringComparison.OrdinalIgnoreCase) && identity.type.IsInstanceOfType(useValue)) {
+									MethodInfo method = typeof(DynamicVariableHelper).GetMethod(nameof(DynamicVariableHelper.WriteDynamicVariable))!;
+									MethodInfo generic = method.MakeGenericMethod(identity.type);
+									DynamicVariableWriteResult writeResult = (DynamicVariableWriteResult)generic.Invoke(null, [metadataSlot, name, Convert.ChangeType(useValue, identity.type)])!;
+
+									if (writeResult == DynamicVariableWriteResult.Success) {
+										Msg($"{name}: {useValue}");
+										wasWritten = true;
+										break;
+									}
+								}
+							}
+
+							if (wasWritten) break;
+						}
+					}
+				}
+			});
 		}
 	}
 }
