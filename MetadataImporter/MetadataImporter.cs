@@ -1,11 +1,19 @@
 ﻿using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
+using System.Security.Principal;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
+
 using Elements.Core;
+
 using FrooxEngine;
+using FrooxEngine.Undo;
+
 using HarmonyLib;
+
 using ResoniteModLoader;
+
 using File = TagLib.File;
 
 namespace MetadataImporter;
@@ -37,9 +45,27 @@ public class MetadataImporter : ResoniteMod {
 		["MusicBrainzDiscId"] = ["DiscId", "MBID.Disc"],
 		["MusicBrainzReleaseId"] = ["ReleaseId", "MBID.Release"],
 		["MusicBrainzTrackId"] = ["TrackId", "RecordingId", "MusicBrainzRecordingId", "MBID.Track", "MBID.Recording"],
-		["MusicBrainzReleaseArtistId"] = ["ReleaseArtistId", "MBID.ReleaseArtist"],
+		["MusicBrainzReleaseArtistId"] = ["ReleaseArtistId", "MBID.ReleaseArtist", "MBID.AlbumArtist"],
 		["MusicBrainzReleaseGroupId"] = ["ReleaseGroupId", "MBID.ReleaseGroup"],
 		["MusicBrainzReleaseType"] = ["ReleaseType", "MB.ReleaseType"],
+	};
+	
+	private static Dictionary<string, string> ResMDRemaps = new Dictionary<string, string> {
+		["Performers"] = "Artist",
+		["PerformersSort"] = "ArtistSort",
+		["Composers"] = "Composer",
+		["ComposersSort"] = "ComposerSort",
+		["AlbumArtists"] = "AlbumArtist",
+		["AlbumArtistsSort"] = "AlbumArtistSort",
+		["Genres"] = "Genre",
+		["BeatsPerMinute"] = "BPM",
+		["MusicBrainzArtistId"] = "MBID.Artist",
+		["MusicBrainzDiscId"] = "MBID.Disc",
+		["MusicBrainzReleaseId"]= "MBID.Release",
+		["MusicBrainzTrackId"] = "MBID.Recording",
+		["MusicBrainzReleaseArtistId"] = "MBID.AlbumArtist",
+		["MusicBrainzReleaseGroupId"] = "MBID.AlbumGroup",
+		["MusicBrainzReleaseType"] = "AlbumType"
 	};
 
 	private static string[] IgnoreTags = new string[] { // ignoring these as we generate them on our own.
@@ -178,9 +204,33 @@ public class MetadataImporter : ResoniteMod {
 			Debug($"Discovering settings...");
 
 			interfaceSlot.RunInUpdates(3, () => {
-				mainSpace.TryReadValue<string>("MetadataImporter.Separator", out string? result);
-				string useSeparator = result ?? ", ";
+				mainSpace.TryReadValue<string>("MetadataImporter.Separator", out string? requestedSeperator);
+				string useSeparator = requestedSeperator ?? ", ";
+				mainSpace.TryReadValue<bool>("MetadataImporter.CastToStrings", out bool requestedStringCast);
+				bool castToStrings = requestedStringCast;
+
+				bool isResMDCompliant = false;
+				foreach (var identity in mainSpace._dynamicValues.Keys) {
+					if (identity.name.Equals("_SMFIELDS") && identity.type == typeof(string)) {
+						isResMDCompliant = true;
+						break;
+					}
+				}
+
+				bool injectDynVars = false;
+
+				List<IDynamicVariable> dynamicVariableList = metadataSlot.GetComponents<IDynamicVariable>();
+
+				if (dynamicVariableList.Count <= (isResMDCompliant ? 1 : 0)) {
+					injectDynVars = true;
+				}
+
+				List<string> writtenDynVars = new List<string>();
+
+
+
 				Debug($"Seperator: [{useSeparator}]");
+				Debug($"Cast to strings: [{castToStrings}]");
 
 				Debug($"Getting the metadata for {file}...");
 
@@ -199,17 +249,23 @@ public class MetadataImporter : ResoniteMod {
 							propertyNames.AddRange(TagSynonyms[prop.Name]);
 						}
 
-						foreach (string name in propertyNames.ToList()) { // allow matching to spaced names, e.g. "Beats Per Minute" instead of "BeatsPerMinute"
+						foreach (string name in propertyNames.ToList()) {
+							// allow matching to spaced names, e.g. "Beats Per Minute" instead of "BeatsPerMinute"
 							string spacedName = Regex.Replace(name, @"((?<=\p{Ll})\p{Lu})|((?!\A)\p{Lu}(?>\p{Ll}))", " $0");
 							if (spacedName != name) {
 								propertyNames.Add(spacedName);
 							}
 						}
 
-
 						var value = prop.GetValue(FileTags);
 
 						if (value == null) continue;
+						if (value is TagLib.IPicture[] photos) {
+							//TODO: Maybe import album art?
+							//Not really a priority for me right now, but it could be cool...
+							Debug($"Skipping {prop.Name} for now, TagLib IPicture is not supported yet");
+							continue;
+						}
 
 						string? joinedValue = null;
 
@@ -233,7 +289,38 @@ public class MetadataImporter : ResoniteMod {
 
 						}
 
-						var useValue = joinedValue ?? value;
+						var useValue = joinedValue ?? (castToStrings ? value.ToString() : value);
+
+						// A bunch of sanity checks to make sure invalid metadata doesn't get through
+						if (useValue is string stringUse) {
+							if (stringUse.Trim().Length <= 0) continue;
+						}
+
+						if (useValue is int intValue) {
+							if (intValue <= 0) continue; // i think this should be okay?
+						}
+						if (useValue is string && int.TryParse((string)useValue, out int intValueBackup)) {
+							if (intValueBackup <= 0) continue;
+						}
+
+						if (value is float floatValue) {
+							if (float.IsNaN(floatValue)) continue;
+							if (float.IsInfinity(floatValue)) continue;
+						}
+						if (useValue is string && float.TryParse((string)useValue, out float floatValueBackup)) {
+							if (float.IsNaN(floatValueBackup)) continue;
+							if (float.IsInfinity(floatValueBackup)) continue;
+						}
+
+						if (value is double doubleValue) {
+							if (double.IsNaN(doubleValue)) continue;
+							if (double.IsInfinity(doubleValue)) continue;
+						}
+						if (useValue is string && double.TryParse((string)useValue, out double doubleValueBackup)) {
+							if (double.IsNaN(doubleValueBackup)) continue;
+							if (double.IsInfinity(doubleValueBackup)) continue;
+						}
+						// there is probably a smarter way to do this but for some reason just "is" checks were NOT working :(
 
 						Debug($"Scanning for field {prop.Name} using synonyms: {String.Join(",", propertyNames)}");
 
@@ -246,16 +333,36 @@ public class MetadataImporter : ResoniteMod {
 									DynamicVariableWriteResult writeResult = (DynamicVariableWriteResult)generic.Invoke(null, [metadataSlot, name, Convert.ChangeType(useValue, identity.type)])!;
 
 									if (writeResult == DynamicVariableWriteResult.Success) {
-										Msg($"{name}: {useValue}");
+										Msg($"✅ {name}: {useValue}");
+										writtenDynVars.Add(name);
 										wasWritten = true;
 										break;
 									}
 								}
 							}
 
-							if (wasWritten) break;
+							if (wasWritten) { 
+								break; 
+							} else if (injectDynVars) {
+								string useName = (isResMDCompliant ? (ResMDRemaps.ContainsKey(name) ? ResMDRemaps[name] : name) : name);
+
+								MethodInfo method = typeof(DynamicVariableHelper).GetMethod(nameof(DynamicVariableHelper.CreateVariable))!;
+								MethodInfo generic = method.MakeGenericMethod(useValue!.GetType());
+								bool createdSuccessfully = (bool)generic.Invoke(null, [metadataSlot, useName, useValue, true])!;
+
+								if (createdSuccessfully) {
+									Msg($"✏ {useName}: {useValue}");
+									writtenDynVars.Add(useName);
+									break;
+								}
+							};
 						}
 					}
+				}
+
+				if (isResMDCompliant) {
+					DynamicVariableHelper.WriteDynamicVariable<string>(metadataSlot, "_SMFIELDS", string.Join(";", writtenDynVars));
+					Msg("Wrote to ResMD compliant interface!");
 				}
 			});
 		}
