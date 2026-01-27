@@ -139,8 +139,7 @@ public class MetadataImporter : ResoniteMod {
 			var vanillaTarget = GetMoveNext(vanillaMethod);
 			if (vanillaTarget != null) yield return vanillaTarget;
 
-			// CommunityBugFixCollection (didn't realize they
-			// use a prefix for this 😭)
+			// CommunityBugFixCollection (didn't realize they use a prefix for this 😭)
 			var modType = AccessTools.TypeByName("CommunityBugFixCollection.ImportMultipleAudioFiles");
 			if (modType != null) {
 				Msg("[AudioImporterPatch] Found CommunityBugFixCollection! Attempting to patch its ImportAudioAsync...");
