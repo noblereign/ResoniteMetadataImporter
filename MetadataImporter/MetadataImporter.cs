@@ -333,6 +333,7 @@ public class MetadataImporter : ResoniteMod {
 	public static class FileBatchCapturer {
 
 		[HarmonyPrefix]
+		[HarmonyAfter("com.__Choco__.ResoniteMP3")]
 		[HarmonyPriority(HarmonyLib.Priority.HigherThanNormal)] // to run before communitybugfix
 		private static void Prefix(IEnumerable<string> files) {
 			if (files != null) {
