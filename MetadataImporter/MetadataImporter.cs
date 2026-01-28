@@ -315,8 +315,7 @@ public class MetadataImporter : ResoniteMod {
 								writtenDynVars.Add(useName);
 								break;
 							}
-						}
-						;
+						};
 					}
 				}
 			}
@@ -338,6 +337,7 @@ public class MetadataImporter : ResoniteMod {
 		private static void Prefix(IEnumerable<string> files) {
 			if (files != null) {
 				_currentImportBatch.Clear();
+				if (!(Config != null ? Config.GetValue(Enabled)! : false)) return;
 				foreach (string file in files) {
 					_currentImportBatch.Add(file, null);
 				}
@@ -351,6 +351,7 @@ public class MetadataImporter : ResoniteMod {
 	public static class MetadataApplier {
 		[HarmonyPostfix]
 		public static async void Postfix(AudioPlayerInterface __instance, Uri url) {
+			if (!(Config != null ? Config.GetValue(Enabled)! : false)) return;
 			foreach (KeyValuePair<string, Uri?> pair in _currentImportBatch.ToList()) {
 				Uri? generatedUri = pair.Value;
 				if (generatedUri == null) {
