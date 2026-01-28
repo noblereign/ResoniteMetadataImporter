@@ -18,7 +18,7 @@ using ResoniteHotReloadLib;
 
 namespace MetadataImporter;
 public class MetadataImporter : ResoniteMod {
-	internal const string VERSION_CONSTANT = "1.0.0";
+	internal const string VERSION_CONSTANT = "1.0.1";
 	public override string Name => "MetadataImporter";
 	public override string Author => "Noble";
 	public override string Version => VERSION_CONSTANT;
@@ -128,7 +128,22 @@ public class MetadataImporter : ResoniteMod {
 	}
 #endif
 
+	public static string EnsureSeperator(string joinedValue, string useSeparator) {
+		if (useSeparator != ", ") {
+			// we want to be doubly sure that the correct separator is being used
+			// for some reason a lot of stuff doesn't *actually* give a proper 'array' of artists, instead its just comma seperated in the metadata
+			// so let's process them to turn it into a array and then back again
 
+			List<string> dividedText = joinedValue
+				.Split(',')
+				.Select(s => s.Trim())
+				.Where(s => !string.IsNullOrEmpty(s)) // Optional: removes empty strings
+				.ToList();
+
+			return string.Join(useSeparator, dividedText);
+		}
+		return joinedValue;
+	}
 
 	public static void ApplyMetadata(string file, AudioPlayerInterface audioPlayer) {
 		if (!(Config != null ? Config.GetValue(Enabled)! : false)) return;
@@ -219,22 +234,7 @@ public class MetadataImporter : ResoniteMod {
 
 					if (value is string[] stringedValue) {
 						Debug($"(Joining {prop.Name}...)");
-						joinedValue = string.Join(useSeparator, stringedValue);
-
-						if (useSeparator != ", ") {
-							// we want to be doubly sure that the correct separator is being used
-							// for some reason a lot of stuff doesn't *actually* give a proper 'array' of artists, instead its just comma seperated in the metadata
-							// so let's process them to turn it into a array and then back again
-
-							List<string> dividedText = joinedValue
-								.Split(',')
-								.Select(s => s.Trim())
-								.Where(s => !string.IsNullOrEmpty(s)) // Optional: removes empty strings
-								.ToList();
-
-							joinedValue = string.Join(useSeparator, dividedText);
-						}
-
+						joinedValue = EnsureSeperator(string.Join(useSeparator, stringedValue), useSeparator);
 					}
 
 					var useValue = joinedValue ?? (castToStrings ? value.ToString() : value);
@@ -245,7 +245,7 @@ public class MetadataImporter : ResoniteMod {
 					}
 
 					if (useValue is Enum enumValue) {
-						useValue = enumValue.ToString(); // dear GOD convert it to a string, evil things happen if you don't 😭
+						useValue = EnsureSeperator(enumValue.ToString(), useSeparator); // dear GOD convert it to a string, evil things happen if you don't 😭
 					}
 
 					if (useValue is int intValue) {
