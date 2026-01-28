@@ -25,9 +25,19 @@ Also, if your entity interface implements the Resonite MetaDisc (Res-MD) standar
 
 ## Screenshots
 
-<img src="readme-images/default-player.png" width="540" alt="Screenshot showing the default Resonite audio player. It has the Metadata slot injected beneath it, full of the audio metadata.">
+<img src="readme-images/default-player.png" alt="Screenshot showing the default Resonite audio player. It has the Metadata slot injected beneath it, full of the audio metadata.">
 
-<img src="readme-images/resmd-orb.jpg" width="540" alt="Screenshot showing an example use-case of the mod. A song orb surfaces the proper track and artist names from the metadata, rather than just a filename">
+<sup>Screenshot showing the default Resonite audio player. It has the Metadata slot injected beneath it, full of the audio metadata.</sup>
+
+<img src="readme-images/resmd-orb.jpg" alt="Screenshot showing an example use-case of the mod. A song orb surfaces the proper track and artist names from the metadata, rather than just a filename">
+
+<sup>Screenshot showing an example use-case of the mod. A song orb surfaces the proper track and artist names from the metadata, rather than just a filename.</sup>
+
+<video src="https://github.com/user-attachments/assets/2425925d-7482-4f0f-8dd8-ad582c7b9d28" width="540" controls>Video showing many audio files being imported with proper metadata, showcasing the compatibility with CommunityBugFixCollection.
+</video>
+
+<sup>Video showing many audio files being imported with proper metadata, showcasing the compatibility with CommunityBugFixCollection.</sup>
+
 
 ## Installation
 1. Install [ResoniteModLoader](https://github.com/resonite-modding-group/ResoniteModLoader).
