@@ -140,7 +140,6 @@ public class MetadataImporter : ResoniteMod {
 		Debug($"Discovering metadata slot");
 		Slot metadataSlot = interfaceSlot.FindChildOrAdd("Metadata", true);
 
-		//TODO: Inject dynvars if the slot didn't exist.
 		Debug($"Discovering dynamic variable space");
 		DynamicVariableSpace mainSpace = interfaceSlot.FindSpace(null!); // if there's nothing it'll probably just be the World one
 
