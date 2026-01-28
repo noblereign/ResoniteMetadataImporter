@@ -20,7 +20,7 @@ These variables should be bound to the Dynamic Variable Space on the root of you
 
 This mod has been confirmed to work with files imported through [ResoniteMP3](https://github.com/AwesomeTornado/ResoniteMP3), and [CommunityBugFixCollection](https://github.com/ResoniteModdingGroup/CommunityBugFixCollection/)'s "Import Multiple Audio Files" patch.
 
-Also, if your entity interface implements the Resonite MetaDisc (Res-MD) standard, the mod can detect that and fill in the proper fields.
+Also, if your entity interface implements the Resonite MetaDisc (Res-MD) Song Orb standard, the mod can detect that and fill in the proper fields.
 <br><sub>Res-MD is still a work-in-progress, there'll be a link to the wiki page once it's complete!</sub>
 
 ## Screenshots
