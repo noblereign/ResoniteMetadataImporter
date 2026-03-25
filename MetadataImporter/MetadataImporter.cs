@@ -1,12 +1,21 @@
 ﻿using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+
 using Elements.Core;
+
 using FrooxEngine;
+
 using HarmonyLib;
+
 using ResoniteModLoader;
+
 using File = TagLib.File;
+
 using FrooxEngine.Store;
+
+using System.Xml.Linq;
+
 
 
 
@@ -18,7 +27,7 @@ using ResoniteHotReloadLib;
 
 namespace MetadataImporter;
 public class MetadataImporter : ResoniteMod {
-	internal const string VERSION_CONSTANT = "1.0.1";
+	internal const string VERSION_CONSTANT = "1.1.0";
 	public override string Name => "MetadataImporter";
 	public override string Author => "Noble";
 	public override string Version => VERSION_CONSTANT;
@@ -83,6 +92,8 @@ public class MetadataImporter : ResoniteMod {
 		"JoinedComposers",
 		"JoinedGenres",
 		"JoinedPerformersSort",
+		"Artists", // deprecated version of Performers
+		"IsEmpty" // this one is just kinda useless i think 😭
 	};
 
 	private static ConditionalWeakTable<string, Uri?> _currentImportBatch = new ConditionalWeakTable<string, Uri?>();
@@ -133,7 +144,7 @@ public class MetadataImporter : ResoniteMod {
 			// we want to be doubly sure that the correct separator is being used
 			// for some reason a lot of stuff doesn't *actually* give a proper 'array' of artists, instead its just comma seperated in the metadata
 			// so let's process them to turn it into a array and then back again
-
+			Debug($"Converting {joinedValue} to use [{useSeparator}]");
 			List<string> dividedText = joinedValue
 				.Split(',')
 				.Select(s => s.Trim())
@@ -152,19 +163,15 @@ public class MetadataImporter : ResoniteMod {
 		if (file == null) { Warn("File was null, ending early."); return; }
 		Debug($"Discovering audio player slot");
 		Slot interfaceSlot = audioPlayer.Slot;
-		Debug($"Discovering metadata slot");
-		Slot metadataSlot = interfaceSlot.FindChildOrAdd("Metadata", true);
-
-		Debug($"Discovering dynamic variable space");
-		DynamicVariableSpace mainSpace = interfaceSlot.FindSpace(null!); // if there's nothing it'll probably just be the World one
-
-		Debug($"Discovering settings...");
 
 		interfaceSlot.RunInUpdates(3, () => {
-			mainSpace.TryReadValue<string>("MetadataImporter.Separator", out string? requestedSeperator);
-			string useSeparator = requestedSeperator ?? ", ";
-			mainSpace.TryReadValue<bool>("MetadataImporter.CastToStrings", out bool requestedStringCast);
-			bool castToStrings = requestedStringCast;
+			Debug($"Discovering metadata slot");
+			Slot metadataSlot = interfaceSlot.FindChildOrAdd("Metadata", true);
+
+			Debug($"Discovering dynamic variable space");
+			DynamicVariableSpace mainSpace = interfaceSlot.FindSpace(null!); // if there's nothing it'll probably just be the World one
+
+			Debug($"Discovering settings...");
 
 			bool isResMDCompliant = false;
 			foreach (var identity in mainSpace._dynamicValues.Keys) {
@@ -173,6 +180,13 @@ public class MetadataImporter : ResoniteMod {
 					break;
 				}
 			}
+
+			mainSpace.TryReadValue<string>("MetadataImporter.Separator", out string? requestedSeperator);
+			string useSeparator = (isResMDCompliant ? ";" : (requestedSeperator ?? ", "));
+			mainSpace.TryReadValue<bool>("MetadataImporter.CastToStrings", out bool requestedStringCast);
+			bool castToStrings = (isResMDCompliant ? true : requestedStringCast);
+			mainSpace.TryReadValue<bool>("MetadataImporter.ImportConvenienceTags", out bool requestedConvenienceTags);
+			bool useConvenienceTags = (isResMDCompliant ? false : requestedConvenienceTags);
 
 			bool injectDynVars = false;
 
@@ -197,6 +211,11 @@ public class MetadataImporter : ResoniteMod {
 				foreach (var prop in properties) {
 
 					if (IgnoreTags.Contains(prop.Name)) continue;
+
+					if (!useConvenienceTags && prop.Name.StartsWith("First")) {
+						Debug($"Skipping {prop.Name} as it is a convenience tag");
+						continue;
+					};
 
 					List<string> propertyNames = [prop.Name];
 
@@ -283,8 +302,8 @@ public class MetadataImporter : ResoniteMod {
 
 					Debug($"Scanning for field {prop.Name} using synonyms: {String.Join(",", propertyNames)}");
 
+					bool wasWritten = false;
 					foreach (string name in propertyNames) {
-						bool wasWritten = false;
 						foreach (var identity in mainSpace._dynamicValues.Keys) {
 							if (identity.name.Equals(name, StringComparison.OrdinalIgnoreCase) && identity.type.IsInstanceOfType(useValue)) {
 								MethodInfo method = typeof(DynamicVariableHelper).GetMethod(nameof(DynamicVariableHelper.WriteDynamicVariable))!;
@@ -299,23 +318,22 @@ public class MetadataImporter : ResoniteMod {
 								}
 							}
 						}
-
-						if (wasWritten) {
-							break;
-						} else if (injectDynVars) {
-							string useName = (isResMDCompliant ? (ResMDRemaps.ContainsKey(name) ? ResMDRemaps[name] : name) : name);
-
-							MethodInfo method = typeof(DynamicVariableHelper).GetMethod(nameof(DynamicVariableHelper.CreateVariable))!;
-							MethodInfo generic = method.MakeGenericMethod(useValue!.GetType());
-							bool createdSuccessfully = (bool)generic.Invoke(null, [metadataSlot, useName, useValue, true])!;
-
-							if (createdSuccessfully) {
-								Msg($"✏ {useName}: {useValue}");
-								writtenDynVars.Add(useName);
-								break;
-							}
-						};
 					}
+
+					if ((!wasWritten) && injectDynVars) {
+						string useName = (isResMDCompliant ? (ResMDRemaps.ContainsKey(prop.Name) ? ResMDRemaps[prop.Name] : prop.Name) : prop.Name);
+
+						MethodInfo method = typeof(DynamicVariableHelper).GetMethod(nameof(DynamicVariableHelper.CreateVariable))!;
+						MethodInfo generic = method.MakeGenericMethod(useValue!.GetType());
+						bool createdSuccessfully = (bool)generic.Invoke(null, [metadataSlot, useName, useValue, true])!;
+
+						if (createdSuccessfully) {
+							Msg($"✏ {useName}: {useValue}");
+							writtenDynVars.Add(useName);
+						} else {
+							Warn($"⚠ Couldn't write!! - {useName}: {useValue}");
+						}
+					};
 				}
 			}
 
